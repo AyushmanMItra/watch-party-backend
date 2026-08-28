@@ -51,6 +51,11 @@ io.on('connection', (socket) => {
   socket.on('pause-video', (roomId) => socket.to(roomId).emit('sync-pause'));
   socket.on('seek-video', (roomId, time) => socket.to(roomId).emit('sync-seek', time));
   socket.on('send-message', (roomId, message) => io.to(roomId).emit('receive-message', message));
+  // --- VIDEO CHUNK RELAY ---
+  // The Admin sends binary fMP4 chunks here, and the server blasts them to the room
+  socket.on('video-chunk', (roomId, chunk) => {
+    socket.to(roomId).emit('video-chunk', chunk);
+  });
 });
 
 const PORT = process.env.PORT || 5000;
