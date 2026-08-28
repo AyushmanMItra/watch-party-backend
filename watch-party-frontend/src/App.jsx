@@ -2,8 +2,8 @@ import { useState, useRef, useEffect } from 'react';
 import io from 'socket.io-client';
 import './App.css'; 
 
-// This checks if the app is deployed. If it is, it uses the live URL. If not, it uses localhost.
-const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3001';
+// Connected to your correct live Railway server!
+const BACKEND_URL = 'https://watch-party-backend-production-abfa.up.railway.app';
 const socket = io(BACKEND_URL);
 
 function App() {
@@ -32,7 +32,6 @@ function App() {
           setMyStream(stream);
           if (myVideoRef.current) myVideoRef.current.srcObject = stream;
           
-          // Tell the room you are ready to connect
           socket.emit('user-ready-for-video', roomId);
         })
         .catch((error) => console.error('Media access error:', error));
@@ -43,26 +42,21 @@ function App() {
   useEffect(() => {
     if (!inRoom) return;
 
-    // Standard Room Events
     socket.on('sync-video-url', (url) => setVideoUrl(url));
     socket.on('sync-play', (time) => { if (videoRef.current) { videoRef.current.currentTime = time; videoRef.current.play(); }});
     socket.on('sync-pause', () => { if (videoRef.current) videoRef.current.pause(); });
     socket.on('sync-seek', (time) => { if (videoRef.current) videoRef.current.currentTime = time; });
     socket.on('receive-message', (data) => setMessages((prev) => [...prev, data]));
 
-    // --- WebRTC Handshake Logic ---
     const createPeerConnection = () => {
       const pc = new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] });
       
-      // Send our video tracks to the partner
       if (myStream) myStream.getTracks().forEach(track => pc.addTrack(track, myStream));
 
-      // Receive partner's video tracks
       pc.ontrack = (event) => {
         if (partnerVideoRef.current) partnerVideoRef.current.srcObject = event.streams[0];
       };
 
-      // Handle ICE candidates
       pc.onicecandidate = (event) => {
         if (event.candidate) socket.emit('webrtc-ice-candidate', roomId, event.candidate);
       };
@@ -110,7 +104,8 @@ function App() {
   const handleUpload = async () => {
     if (!videoFile) return;
     const formData = new FormData(); formData.append('video', videoFile);
-    // Updated fetch to use dynamic URL
+    
+    // Upload points to Railway
     const res = await fetch(`${BACKEND_URL}/upload`, { method: 'POST', body: formData });
     const data = await res.json();
     setVideoUrl(data.downloadUrl); socket.emit('video-uploaded', roomId, data.downloadUrl);

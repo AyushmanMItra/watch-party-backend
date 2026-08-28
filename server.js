@@ -1,34 +1,43 @@
+require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const http = require('http');
 const { Server } = require('socket.io');
 const multer = require('multer');
-const path = require('path');
+const { v2: cloudinary } = require('cloudinary');
+const { CloudinaryStorage } = require('multer-storage-cloudinary');
 
 const app = express();
 app.use(cors());
 const server = http.createServer(app);
 
-// --- 1. FILE UPLOAD SETUP (MULTER) ---
-const storage = multer.diskStorage({
-    destination: (req, file, cb) => {
-        cb(null, './uploads');
-    },
-    filename: (req, file, cb) => {
-        cb(null, 'party-video' + path.extname(file.originalname));
+// --- 1. CLOUDINARY & MULTER SETUP ---
+// This connects your server securely to your Cloudinary account
+cloudinary.config({
+    cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+    api_key: process.env.CLOUDINARY_API_KEY,
+    api_secret: process.env.CLOUDINARY_API_SECRET
+});
+
+const storage = new CloudinaryStorage({
+    cloudinary: cloudinary,
+    params: {
+        folder: 'watch-party-videos',
+        resource_type: 'video', // This is critical so Cloudinary knows it is a video, not an image
+        allowed_formats: ['mp4', 'mov', 'avi', 'mkv', 'webm']
     }
 });
+
 const upload = multer({ storage: storage });
 
+// The upload route now automatically sends the file to Cloudinary
 app.post('/upload', upload.single('video'), (req, res) => {
-    console.log('Admin uploaded a new video!');
+    console.log('Admin uploaded a new video to Cloudinary!');
     res.json({
         message: 'Upload successful',
-        downloadUrl: `http://localhost:3001/uploads/party-video${path.extname(req.file.originalname)}`
+        downloadUrl: req.file.path // Cloudinary automatically generates the live URL here
     });
 });
-
-app.use('/uploads', express.static('uploads'));
 
 // --- 2. SOCKET.IO SETUP (REAL-TIME SYNC, CHAT, & WEBRTC) ---
 const io = new Server(server, {
@@ -41,13 +50,10 @@ const io = new Server(server, {
 io.on('connection', (socket) => {
     console.log(`A user connected! Their ID is: ${socket.id}`);
 
-    // Join Room
     socket.on('join-room', (roomId) => {
         socket.join(roomId);
-        console.log(`User ${socket.id} joined room: ${roomId}`);
     });
 
-    // Video Sync Events
     socket.on('video-uploaded', (roomId, videoUrl) => {
         socket.to(roomId).emit('sync-video-url', videoUrl);
     });
@@ -64,12 +70,11 @@ io.on('connection', (socket) => {
         socket.to(roomId).emit('sync-seek', currentTime);
     });
 
-    // Chat Event (Using io.to so the sender also sees it)
     socket.on('send-message', (roomId, messageData) => {
         io.to(roomId).emit('receive-message', messageData);
     });
 
-    // WebRTC Signaling Events (For Peer-to-Peer Video/Voice)
+    // WebRTC Signaling Events
     socket.on('user-ready-for-video', (roomId) => {
         socket.to(roomId).emit('user-ready-for-video');
     });
@@ -86,7 +91,6 @@ io.on('connection', (socket) => {
         socket.to(roomId).emit('webrtc-ice-candidate', candidate);
     });
 
-    // Disconnect Event
     socket.on('disconnect', () => {
         console.log(`User disconnected: ${socket.id}`);
     });
@@ -94,10 +98,10 @@ io.on('connection', (socket) => {
 
 // --- 3. START THE SERVER ---
 app.get('/', (req, res) => {
-    res.send('Watch Party Server is fully operational!');
+    res.send('Watch Party Server is fully operational with Cloud Storage!');
 });
 
-const PORT = 3001;
+const PORT = process.env.PORT || 3001;
 server.listen(PORT, () => {
-    console.log(`Server is up and listening on http://localhost:${PORT}`);
+    console.log(`Server is up and listening on port ${PORT}`);
 });
